@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Banco Águila - Cajero Automático</title>
+    <link rel="stylesheet" href="/static/diseño.css">
+</head>
+<body>
+    <div class="atm-container">
+        <div class="atm-card">
+            <h1>🦅 Banco Águila</h1>
+            <div id="pin-section" class="section">
+                <h2>Ingrese su tarjeta</h2>
+                <div class="input-group">
+                    <label>PIN (4 dígitos)</label>
+                    <input type="password" id="pin-input" maxlength="4" placeholder="****" autocomplete="off">
+                </div>
+                <button id="btn-verificar">Verificar PIN</button>
+                <div id="pin-mensaje" class="mensaje"></div>
+            </div>
+
+            <div id="menu-section" class="section hidden">
+                <div class="saldo-info">
+                    <h3>Saldo actual: <span id="saldo-display">$0.00</span></h3>
+                </div>
+                <div class="botones-menu">
+                    <button data-opcion="saldo">💰 Consultar saldo</button>
+                    <button data-opcion="depositar">📥 Depositar</button>
+                    <button data-opcion="retirar">📤 Retirar</button>
+                    <button data-opcion="historial">📜 Ver historial</button>
+                    <button data-opcion="salir">🚪 Salir / Cerrar sesión</button>
+                </div>
+                <div id="operacion-panel" class="panel-oculto">
+                    <div id="depositar-form" class="form-operacion hidden">
+                        <h3>Depósito</h3>
+                        <div class="input-group">
+                            <label>Número de cuenta</label>
+                            <input type="text" id="cuenta-deposito" placeholder="Ej: 12345678">
+                        </div>
+                        <div class="input-group">
+                            <label>Monto a depositar</label>
+                            <input type="number" id="monto-deposito" step="0.01" min="0.01" placeholder="0.00">
+                        </div>
+                        <button id="confirmar-deposito">Confirmar depósito</button>
+                        <button class="btn-cancelar">Cancelar</button>
+                        <div class="info-extra">* Se aplica 0.5% de interés (comisión)</div>
+                    </div>
+                    <div id="retirar-form" class="form-operacion hidden">
+                        <h3>Retiro</h3>
+                        <div class="input-group">
+                            <label>Número de cuenta</label>
+                            <input type="text" id="cuenta-retiro" placeholder="Ej: 12345678">
+                        </div>
+                        <div class="input-group">
+                            <label>Monto a retirar</label>
+                            <input type="number" id="monto-retiro" step="0.01" min="0.01" placeholder="0.00">
+                        </div>
+                        <button id="confirmar-retiro">Confirmar retiro</button>
+                        <button class="btn-cancelar">Cancelar</button>
+                    </div>
+                    <div id="historial-lista" class="historial hidden">
+                        <h3>Historial de movimientos</h3>
+                        <ul id="lista-historial"></ul>
+                        <button class="btn-cancelar">Cerrar</button>
+                    </div>
+                </div>
+                <div id="mensaje-operacion" class="mensaje"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autenticado = false;
+        const pinSection = document.getElementById('pin-section');
+        const menuSection = document.getElementById('menu-section');
+        const btnVerificar = document.getElementById('btn-verificar');
+        const pinInput = document.getElementById('pin-input');
+        const pinMensaje = document.getElementById('pin-mensaje');
+        const saldoSpan = document.getElementById('saldo-display');
+        const mensajeOp = document.getElementById('mensaje-operacion');
+        const panelOperacion = document.getElementById('operacion-panel');
+        const depositarForm = document.getElementById('depositar-form');
+        const retirarForm = document.getElementById('retirar-form');
+        const historialDiv = document.getElementById('historial-lista');
+        const listaHistorial = document.getElementById('lista-historial');
+
+        function mostrarMensaje(elemento, texto, esError = false) {
+            elemento.textContent = texto;
+            elemento.style.color = esError ? '#d32f2f' : '#2e7d32';
+            setTimeout(() => {
+                if (elemento === mensajeOp) elemento.textContent = '';
+                else if (elemento === pinMensaje && !esError) elemento.textContent = '';
+            }, 4000);
+        }
+
+        async function cargarSaldo() {
+            try {
+                const resp = await fetch('/api/saldo');
+                if (!resp.ok) throw new Error('No autorizado');
+                const data = await resp.json();
+                saldoSpan.textContent = `$${data.saldo.toFixed(2)}`;
+            } catch (err) {
+                console.error(err);
+                if (err.message === 'No autorizado') cerrarSesion();
+            }
+        }
+
+        async function cerrarSesion() {
+            await fetch('/api/salir', { method: 'POST' });
+            autenticado = false;
+            pinSection.classList.remove('hidden');
+            menuSection.classList.add('hidden');
+            pinInput.value = '';
+            pinMensaje.textContent = '';
+            mensajeOp.textContent = '';
+            ocultarPaneles();
+        }
+
+        function ocultarPaneles() {
+            panelOperacion.classList.add('hidden');
+            depositarForm.classList.add('hidden');
+            retirarForm.classList.add('hidden');
+            historialDiv.classList.add('hidden');
+        }
+
+        function mostrarPanel(tipo) {
+            ocultarPaneles();
+            panelOperacion.classList.remove('hidden');
+            if (tipo === 'depositar') depositarForm.classList.remove('hidden');
+            else if (tipo === 'retirar') retirarForm.classList.remove('hidden');
+            else if (tipo === 'historial') {
+                historialDiv.classList.remove('hidden');
+                cargarHistorial();
+            }
+        }
+
+        async function cargarHistorial() {
+            try {
+                const resp = await fetch('/api/historial');
+                const data = await resp.json();
+                listaHistorial.innerHTML = '';
+                if (data.historial.length === 0) {
+                    listaHistorial.innerHTML = '<li>No hay movimientos registrados</li>';
+                } else {
+                    data.historial.forEach(item => {
+                        const li = document.createElement('li');
+                        li.textContent = item;
+                        listaHistorial.appendChild(li);
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+                mostrarMensaje(mensajeOp, 'Error al cargar historial', true);
+            }
+        }
+
+        btnVerificar.addEventListener('click', async () => {
+            const pin = pinInput.value.trim();
+            if (!pin) {
+                mostrarMensaje(pinMensaje, 'Ingrese el PIN', true);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/verificar_pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: pin })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    autenticado = true;
+                    pinSection.classList.add('hidden');
+                    menuSection.classList.remove('hidden');
+                    cargarSaldo();
+                    mostrarMensaje(pinMensaje, '✅ Acceso concedido', false);
+                } else if (data.bloqueado) {
+                    mostrarMensaje(pinMensaje, data.mensaje, true);
+                    pinInput.disabled = true;
+                    btnVerificar.disabled = true;
+                } else {
+                    mostrarMensaje(pinMensaje, data.mensaje, true);
+                }
+            } catch (err) {
+                mostrarMensaje(pinMensaje, 'Error de conexión con el servidor', true);
+            }
+        });
+
+        document.querySelector('.botones-menu').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-opcion]');
+            if (!btn) return;
+            const opcion = btn.dataset.opcion;
+            mensajeOp.textContent = '';
+            switch(opcion) {
+                case 'saldo':
+                    cargarSaldo();
+                    mostrarMensaje(mensajeOp, 'Saldo actualizado', false);
+                    break;
+                case 'depositar':
+                    mostrarPanel('depositar');
+                    break;
+                case 'retirar':
+                    mostrarPanel('retirar');
+                    break;
+                case 'historial':
+                    mostrarPanel('historial');
+                    break;
+                case 'salir':
+                    cerrarSesion();
+                    break;
+            }
+        });
+
+        document.getElementById('confirmar-deposito').addEventListener('click', async () => {
+            const cuenta = document.getElementById('cuenta-deposito').value.trim();
+            const monto = parseFloat(document.getElementById('monto-deposito').value);
+            if (!cuenta || isNaN(monto) || monto <= 0) {
+                mostrarMensaje(mensajeOp, 'Ingrese número de cuenta y monto válido', true);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/depositar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ num_cuenta: cuenta, monto: monto })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    cargarSaldo();
+                    mostrarMensaje(mensajeOp, data.mensaje, false);
+                    ocultarPaneles();
+                    document.getElementById('cuenta-deposito').value = '';
+                    document.getElementById('monto-deposito').value = '';
+                } else {
+                    mostrarMensaje(mensajeOp, data.mensaje || 'Error en depósito', true);
+                }
+            } catch (err) {
+                mostrarMensaje(mensajeOp, 'Error de comunicación', true);
+            }
+        });
+
+        document.getElementById('confirmar-retiro').addEventListener('click', async () => {
+            const cuenta = document.getElementById('cuenta-retiro').value.trim();
+            const monto = parseFloat(document.getElementById('monto-retiro').value);
+            if (!cuenta || isNaN(monto) || monto <= 0) {
+                mostrarMensaje(mensajeOp, 'Ingrese número de cuenta y monto válido', true);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/retirar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ num_cuenta: cuenta, monto: monto })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    cargarSaldo();
+                    mostrarMensaje(mensajeOp, data.mensaje, false);
+                    ocultarPaneles();
+                    document.getElementById('cuenta-retiro').value = '';
+                    document.getElementById('monto-retiro').value = '';
+                } else {
+                    mostrarMensaje(mensajeOp, data.mensaje || 'Error en retiro', true);
+                }
+            } catch (err) {
+                mostrarMensaje(mensajeOp, 'Error de comunicación', true);
+            }
+        });
+
+        document.querySelectorAll('.btn-cancelar').forEach(btn => {
+            btn.addEventListener('click', () => {
+                ocultarPaneles();
+                mensajeOp.textContent = '';
+            });
+        });
+    </script>
+</body>
+</html>

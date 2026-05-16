@@ -1,1 +1,10 @@
-{"saldo": 98.0, "historial": ["+199.0 deposito", "+199.0 deposito", "-300retiro"]}
+{
+    "saldo": 99646.28,
+    "historial": [
+        "+199.0 deposito",
+        "+199.0 deposito",
+        "-300retiro",
+        "+111782.28 dep\u00f3sito (cuenta 124455, bruto 112344.00, inter\u00e9s 561.72)",
+        "-12234.00 retiro (cuenta 12342)"
+    ]
+}
